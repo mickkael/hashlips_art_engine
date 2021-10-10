@@ -51,6 +51,9 @@ const getRarityWeight = (_str) => {
 };
 
 const cleanDna = (_str) => {
+  debugLogs
+    ? console.log("cleanDna: ", _str)
+    : null;
   var dna = Number(_str.split(":").shift());
   return dna;
 };
@@ -125,10 +128,12 @@ const addMetadata = (_dna, _edition) => {
 
 const addAttributes = (_element) => {
   let selectedElement = _element.layer.selectedElement;
-  attributesList.push({
-    trait_type: _element.layer.name,
-    value: selectedElement.name,
-  });
+  if (selectedElement.id > -1) {
+    attributesList.push({
+      trait_type: _element.layer.name,
+      value: selectedElement.name,
+    });
+  }
 };
 
 const loadLayerImg = async (_layer) => {
@@ -168,18 +173,23 @@ const isDnaUnique = (_DnaList = [], _dna = []) => {
 const createDna = (_layers) => {
   let randNum = [];
   _layers.forEach((layer) => {
-    var totalWeight = 0;
-    layer.elements.forEach((element) => {
-      totalWeight += element.weight;
-    });
+    var totalWeight = 100;
     // number between 0 - totalWeight
     let random = Math.floor(Math.random() * totalWeight);
     for (var i = 0; i < layer.elements.length; i++) {
       // subtract the current weight from the random weight until we reach a sub zero value.
+      debugLogs
+        ? console.log("Layer: ", layer.name, " Element: ", layer.elements[i].name, " Random: ", random, " Weight: ", layer.elements[i].weight, " Elements Length : ", layer.elements.length, " Elements filename : ", layer.elements[i].filename, " Elements ID : ", layer.elements[i].id, " randNum : ", `${layer.elements[i].id}:${layer.elements[i].filename}`)
+        : null;
       random -= layer.elements[i].weight;
       if (random < 0) {
         return randNum.push(
           `${layer.elements[i].id}:${layer.elements[i].filename}`
+        );
+      }
+      if (i == layer.elements.length - 1) {
+        return randNum.push(
+          `-1:none`
         );
       }
     }
@@ -249,7 +259,9 @@ const startCreating = async () => {
         let loadedElements = [];
 
         results.forEach((layer) => {
-          loadedElements.push(loadLayerImg(layer));
+          if (layer.selectedElement != undefined) {
+            loadedElements.push(loadLayerImg(layer));
+          }
         });
 
         await Promise.all(loadedElements).then((renderObjectArray) => {
