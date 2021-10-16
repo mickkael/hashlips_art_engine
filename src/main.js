@@ -11,7 +11,6 @@ const { createCanvas, loadImage } = require(path.join(
 ));
 const buildDir = path.join(basePath, "/build");
 const layersDir = path.join(basePath, "/layers");
-console.log(path.join(basePath, "/src/config.js"));
 const {
   format,
   baseUri,
@@ -23,12 +22,14 @@ const {
   shuffleLayerConfigurations,
   debugLogs,
   extraMetadata,
+  text,
 } = require(path.join(basePath, "/src/config.js"));
 const canvas = createCanvas(format.width, format.height);
 const ctx = canvas.getContext("2d");
 var metadataList = [];
 var attributesList = [];
-var dnaList = [];
+var dnaList = new Set();
+const DNA_DELIMITER = "-";
 
 const buildSetup = () => {
   if (fs.existsSync(buildDir)) {
@@ -45,7 +46,7 @@ const getRarityWeight = (_str) => {
     nameWithoutExtension.split(rarityDelimiter).pop()
   );
   if (isNaN(nameWithoutWeight)) {
-    nameWithoutWeight = 0;
+    nameWithoutWeight = 1;
   }
   return nameWithoutWeight;
 };
@@ -82,11 +83,19 @@ const getElements = (path) => {
 const layersSetup = (layersOrder) => {
   const layers = layersOrder.map((layerObj, index) => ({
     id: index,
-    name: layerObj.name,
     elements: getElements(`${layersDir}/${layerObj.name}/`),
-    blendMode:
-      layerObj["blend"] != undefined ? layerObj["blend"] : "source-over",
-    opacity: layerObj["opacity"] != undefined ? layerObj["opacity"] : 1,
+    name:
+      layerObj.options?.["displayName"] != undefined
+        ? layerObj.options?.["displayName"]
+        : layerObj.name,
+    blend:
+      layerObj.options?.["blend"] != undefined
+        ? layerObj.options?.["blend"]
+        : "source-over",
+    opacity:
+      layerObj.options?.["opacity"] != undefined
+        ? layerObj.options?.["opacity"]
+        : 1,
   }));
   return layers;
 };
@@ -105,14 +114,14 @@ const genColor = () => {
 };
 
 const drawBackground = () => {
-  ctx.fillStyle = genColor();
+  ctx.fillStyle = background.static ? background.default : genColor();
   ctx.fillRect(0, 0, format.width, format.height);
 };
 
 const addMetadata = (_dna, _edition) => {
   let dateTime = Date.now();
   let tempMetadata = {
-    dna: sha1(_dna.join("")),
+    dna: sha1(_dna),
     name: `#${_edition}`,
     description: description,
     image: `${baseUri}/${_edition}.png`,
@@ -143,21 +152,43 @@ const loadLayerImg = async (_layer) => {
   });
 };
 
-const drawElement = (_renderObject) => {
+const addText = (_sig, x, y, size) => {
+  ctx.fillStyle = text.color;
+  ctx.font = `${text.weight} ${size}pt ${text.family}`;
+  ctx.textBaseline = text.baseline;
+  ctx.textAlign = text.align;
+  ctx.fillText(_sig, x, y);
+};
+
+const drawElement = (_renderObject, _index, _layersLen) => {
   ctx.globalAlpha = _renderObject.layer.opacity;
-  ctx.globalCompositeOperation = _renderObject.layer.blendMode;
-  ctx.drawImage(_renderObject.loadedImage, 0, 0, format.width, format.height);
+  ctx.globalCompositeOperation = _renderObject.layer.blend;
+  text.only
+    ? addText(
+        `${_renderObject.layer.name}${text.spacer}${_renderObject.layer.selectedElement.name}`,
+        text.xGap,
+        text.yGap * (_index + 1),
+        text.size
+      )
+    : ctx.drawImage(
+        _renderObject.loadedImage,
+        0,
+        0,
+        format.width,
+        format.height
+      );
+
   addAttributes(_renderObject);
 };
 
-const constructLayerToDna = (_dna = [], _layers = []) => {
+const constructLayerToDna = (_dna = "", _layers = []) => {
   let mappedDnaToLayers = _layers.map((layer, index) => {
     let selectedElement = layer.elements.find(
-      (e) => e.id == cleanDna(_dna[index])
+      (e) => e.id == cleanDna(_dna.split(DNA_DELIMITER)[index])
     );
     return {
       name: layer.name,
-      blendMode: layer.blendMode,
+      blend: layer.blend,
       opacity: layer.opacity,
       selectedElement: selectedElement,
     };
@@ -165,9 +196,8 @@ const constructLayerToDna = (_dna = [], _layers = []) => {
   return mappedDnaToLayers;
 };
 
-const isDnaUnique = (_DnaList = [], _dna = []) => {
-  let foundDna = _DnaList.find((i) => i.join("") === _dna.join(""));
-  return foundDna == undefined ? true : false;
+const isDnaUnique = (_DnaList = new Set(), _dna = "") => {
+  return !_DnaList.has(_dna);
 };
 
 const createDna = (_layers) => {
@@ -194,7 +224,7 @@ const createDna = (_layers) => {
       }
     }
   });
-  return randNum;
+  return randNum.join(DNA_DELIMITER);
 };
 
 const writeMetaData = (_data) => {
@@ -270,8 +300,12 @@ const startCreating = async () => {
           if (background.generate) {
             drawBackground();
           }
-          renderObjectArray.forEach((renderObject) => {
-            drawElement(renderObject);
+          renderObjectArray.forEach((renderObject, index) => {
+            drawElement(
+              renderObject,
+              index,
+              layerConfigurations[layerConfigIndex].layersOrder.length
+            );
           });
           debugLogs
             ? console.log("Editions left to create: ", abstractedIndexes)
@@ -281,11 +315,11 @@ const startCreating = async () => {
           saveMetaDataSingleFile(abstractedIndexes[0]);
           console.log(
             `Created edition: ${abstractedIndexes[0]}, with DNA: ${sha1(
-              newDna.join("")
+              newDna
             )}`
           );
         });
-        dnaList.push(newDna);
+        dnaList.add(newDna);
         editionCount++;
         abstractedIndexes.shift();
       } else {
